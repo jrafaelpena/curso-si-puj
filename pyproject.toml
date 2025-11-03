@@ -15,8 +15,6 @@ dependencies = [
     "ipykernel",
     "matplotlib>=3.10.7",
     "seaborn>=0.13.2",
-    "optunahub>=0.3.1",
-    "torchinfo>=1.8.0",
 ]
 
 [dependency-groups]
@@ -26,6 +24,7 @@ rn = [
     "scikit-learn>=1.6.0",
     "torch==2.8.0",
     "lightgbm>=4.0.0",
+    "torchinfo>=1.8.0",
 ]
 
 me = [
@@ -33,7 +32,14 @@ me = [
     "scikit-learn",
     "optuna",
     "deap",
-    "optunahub"
+    "optunahub",
+    "torchinfo>=1.8.0",
+]
+
+ri = [
+    "scikit-learn",
+    "pgmpy",
+    "deap",
 ]
 
 [tool.uv]

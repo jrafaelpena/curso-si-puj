@@ -1,3 +1,4 @@
+# utils.py
 import pandas as pd
 import numpy as np
 from sklearn.metrics import (
@@ -63,3 +64,38 @@ def custom_reports_from_proba(y_true, y_proba):
     }])
     
     return metrics_df
+
+def custom_metrics_from_proba(y_true, y_proba):
+    """
+    Compute key classification metrics (binary classification) from predicted probabilities.
+
+    Parameters
+    ----------
+    y_true : array-like
+        True binary labels (0 or 1).
+    y_proba : array-like
+        Predicted probabilities for the positive class (shape: (n_samples,) or (n_samples, 2)).
+
+    Returns
+    -------
+    metrics_dict : dict
+        Dictionary with keys: accuracy, roc_auc, precision, recall, f1_score
+    """
+    
+    # Handle case where y_proba has 2 columns
+    if y_proba.ndim > 1:
+        y_proba = y_proba[:, 1]
+    
+    # Convert probabilities to class predictions
+    y_pred = (y_proba >= 0.5).astype(int)
+    
+    # Compute metrics
+    metrics_dict = {
+        "accuracy": accuracy_score(y_true, y_pred),
+        "roc_auc": roc_auc_score(y_true, y_proba),
+        "precision": precision_score(y_true, y_pred),
+        "recall": recall_score(y_true, y_pred),
+        "f1_score": f1_score(y_true, y_pred)
+    }
+    
+    return metrics_dict

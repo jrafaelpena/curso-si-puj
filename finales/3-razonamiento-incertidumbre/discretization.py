@@ -1,23 +1,20 @@
+# discretization.py
 """
 Discretización de variables continuas
 """
 import numpy as np
+import pandas as pd
 from sklearn.preprocessing import KBinsDiscretizer
 from typing import Tuple, Literal, Optional, List, Union
 
 
 class Discretizer:
-    """
-    Wrapper for discretizing continuous features using different strategies.
-    Supports selective discretization of specific columns while keeping others unchanged.
-    """
-    
     def __init__(
         self, 
         n_bins: int = 5, 
         strategy: Literal['uniform', 'quantile', 'kmeans'] = 'quantile',
         encode: str = 'ordinal',
-        columns_to_discretize: Optional[Union[List[int], np.ndarray]] = None
+        columns_to_discretize: Optional[Union[List[str], str]] = None
     ):
         """
         Initialize discretizer
@@ -33,15 +30,22 @@ class Discretizer:
             - 'kmeans': Values in each bin have the same nearest center of a 1D k-means cluster
         encode : str
             Method to encode the transformed result ('ordinal' or 'onehot')
-        columns_to_discretize : list or array-like, optional
-            Indices of columns to discretize. If None, discretizes all columns.
+        columns_to_discretize : list of str, str, or None
+            Names of columns to discretize. If None, discretizes all columns.
+            Can be a single column name (str) or a list of column names.
             Use this to keep binary/categorical columns unchanged.
-            Example: [0, 2, 5] will discretize only columns 0, 2, and 5
+            Example: ['age', 'income', 'score'] will discretize only those columns
         """
         self.n_bins = n_bins
         self.strategy = strategy
         self.encode = encode
-        self.columns_to_discretize = columns_to_discretize
+        
+        # Handle single string or list of strings
+        if isinstance(columns_to_discretize, str):
+            self.columns_to_discretize = [columns_to_discretize]
+        else:
+            self.columns_to_discretize = columns_to_discretize
+            
         self.discretizer = KBinsDiscretizer(
             n_bins=n_bins,
             encode=encode,
@@ -52,13 +56,13 @@ class Discretizer:
         self._all_columns = None
         self._keep_columns = None
     
-    def fit(self, X: np.ndarray) -> 'Discretizer':
+    def fit(self, X: pd.DataFrame) -> 'Discretizer':
         """
         Fit the discretizer on training data
         
         Parameters:
         -----------
-        X : np.ndarray
+        X : pd.DataFrame
             Training data to fit
             
         Returns:
@@ -66,80 +70,88 @@ class Discretizer:
         self : Discretizer
             Fitted discretizer
         """
-        X = np.asarray(X)
-        n_features = X.shape[1]
+        if not isinstance(X, pd.DataFrame):
+            raise TypeError("X must be a pandas DataFrame")
+        
+        self._all_columns = list(X.columns)
         
         # Determine which columns to discretize
         if self.columns_to_discretize is None:
             # Discretize all columns
-            self.columns_to_discretize = list(range(n_features))
+            self.columns_to_discretize = self._all_columns.copy()
             self._keep_columns = []
         else:
-            # Discretize only specified columns
-            self.columns_to_discretize = list(self.columns_to_discretize)
+            # Verify all specified columns exist
+            missing_cols = set(self.columns_to_discretize) - set(self._all_columns)
+            if missing_cols:
+                raise ValueError(f"Columns not found in DataFrame: {missing_cols}")
+            
             # Keep track of columns to preserve
-            self._keep_columns = [i for i in range(n_features) 
-                                 if i not in self.columns_to_discretize]
-        
-        self._all_columns = list(range(n_features))
+            self._keep_columns = [col for col in self._all_columns 
+                                 if col not in self.columns_to_discretize]
         
         # Fit only on columns to discretize
         if len(self.columns_to_discretize) > 0:
-            X_to_fit = X[:, self.columns_to_discretize]
+            X_to_fit = X[self.columns_to_discretize]
             self.discretizer.fit(X_to_fit)
         
         self._fitted = True
         return self
     
-    def transform(self, X: np.ndarray) -> np.ndarray:
+    def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         """
         Transform data using fitted discretizer
         
         Parameters:
         -----------
-        X : np.ndarray
+        X : pd.DataFrame
             Data to transform
             
         Returns:
         --------
-        X_discrete : np.ndarray
+        X_discrete : pd.DataFrame
             Discretized data (with specified columns discretized, others unchanged)
         """
         if not self._fitted:
             raise ValueError("Discretizer must be fitted before transform")
         
-        X = np.asarray(X)
+        if not isinstance(X, pd.DataFrame):
+            raise TypeError("X must be a pandas DataFrame")
         
-        # If discretizing all columns, use standard approach
-        if len(self._keep_columns) == 0:
-            return self.discretizer.transform(X).astype(int)
+        # Verify columns match
+        if list(X.columns) != self._all_columns:
+            raise ValueError("Column names in transform data don't match fit data")
         
-        # Otherwise, selectively discretize
+        # Create result DataFrame
         X_result = X.copy()
         
-        # Discretize specified columns
-        if len(self.columns_to_discretize) > 0:
-            X_to_transform = X[:, self.columns_to_discretize]
-            X_discretized = self.discretizer.transform(X_to_transform).astype(int)
-            X_result[:, self.columns_to_discretize] = X_discretized
-        
-        # Keep other columns as integers (for binary/categorical)
-        X_result[:, self._keep_columns] = X[:, self._keep_columns].astype(int)
+        # If discretizing all columns
+        if len(self._keep_columns) == 0:
+            X_discretized = self.discretizer.transform(X[self.columns_to_discretize])
+            X_result[self.columns_to_discretize] = X_discretized.astype(int)
+        else:
+            # Discretize specified columns
+            if len(self.columns_to_discretize) > 0:
+                X_discretized = self.discretizer.transform(X[self.columns_to_discretize])
+                X_result[self.columns_to_discretize] = X_discretized.astype(int)
+            
+            # Keep other columns as integers (for binary/categorical)
+            X_result[self._keep_columns] = X[self._keep_columns].astype(int)
         
         return X_result.astype(int)
     
-    def fit_transform(self, X: np.ndarray) -> np.ndarray:
+    def fit_transform(self, X: pd.DataFrame) -> pd.DataFrame:
         """
         Fit and transform data in one step
         
         Parameters:
         -----------
-        X : np.ndarray
+        X : pd.DataFrame
             Data to fit and transform
             
         Returns:
         --------
-        X_discrete : np.ndarray
+        X_discrete : pd.DataFrame
             Discretized data
         """
         return self.fit(X).transform(X)
@@ -153,44 +165,62 @@ class Discretizer:
             'columns_to_discretize': self.columns_to_discretize
         }
     
-    def get_discretized_columns(self) -> List[int]:
+    def get_discretized_columns(self) -> List[str]:
         """Get list of columns that were discretized"""
         return self.columns_to_discretize if self.columns_to_discretize else []
     
-    def get_kept_columns(self) -> List[int]:
+    def get_kept_columns(self) -> List[str]:
         """Get list of columns that were kept unchanged"""
         return self._keep_columns if self._keep_columns else []
+    
+    def get_bin_edges(self) -> dict:
+        """
+        Get bin edges for each discretized column
+        
+        Returns:
+        --------
+        bin_edges : dict
+            Dictionary mapping column names to their bin edges
+        """
+        if not self._fitted:
+            raise ValueError("Discretizer must be fitted first")
+        
+        bin_edges = {}
+        for i, col in enumerate(self.columns_to_discretize):
+            bin_edges[col] = self.discretizer.bin_edges_[i]
+        
+        return bin_edges
 
 
 def discretize_data(
-    X_train: np.ndarray,
-    X_test: np.ndarray,
+    X_train: pd.DataFrame,
+    X_test: pd.DataFrame,
     n_bins: int = 5,
     strategy: str = 'quantile',
-    columns_to_discretize: Optional[Union[List[int], np.ndarray]] = None
-) -> Tuple[np.ndarray, np.ndarray, Discretizer]:
+    columns_to_discretize: Optional[Union[List[str], str]] = None
+) -> Tuple[pd.DataFrame, pd.DataFrame, Discretizer]:
     """
     Discretize training and test data
     
     Parameters:
     -----------
-    X_train : np.ndarray
+    X_train : pd.DataFrame
         Training data
-    X_test : np.ndarray
+    X_test : pd.DataFrame
         Test data
     n_bins : int
         Number of bins
     strategy : str
         Discretization strategy ('uniform', 'quantile', 'kmeans')
-    columns_to_discretize : list or array-like, optional
-        Indices of columns to discretize. If None, discretizes all columns.
-        Example: [0, 2, 5] will discretize only columns 0, 2, and 5
+    columns_to_discretize : list of str, str, or None
+        Names of columns to discretize. If None, discretizes all columns.
+        Example: ['age', 'income'] will discretize only those columns
         
     Returns:
     --------
-    X_train_discrete : np.ndarray
+    X_train_discrete : pd.DataFrame
         Discretized training data
-    X_test_discrete : np.ndarray
+    X_test_discrete : pd.DataFrame
         Discretized test data
     discretizer : Discretizer
         Fitted discretizer object
@@ -207,19 +237,19 @@ def discretize_data(
 
 
 def discretize_cv_fold(
-    X: np.ndarray,
+    X: pd.DataFrame,
     train_idx: np.ndarray,
     test_idx: np.ndarray,
     n_bins: int = 5,
     strategy: str = 'quantile',
-    columns_to_discretize: Optional[Union[List[int], np.ndarray]] = None
-) -> Tuple[np.ndarray, np.ndarray]:
+    columns_to_discretize: Optional[Union[List[str], str]] = None
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Discretize a single CV fold
     
     Parameters:
     -----------
-    X : np.ndarray
+    X : pd.DataFrame
         Full dataset
     train_idx : np.ndarray
         Indices for training set
@@ -229,119 +259,21 @@ def discretize_cv_fold(
         Number of bins
     strategy : str
         Discretization strategy
-    columns_to_discretize : list or array-like, optional
-        Indices of columns to discretize. If None, discretizes all columns.
+    columns_to_discretize : list of str, str, or None
+        Names of columns to discretize. If None, discretizes all columns.
         
     Returns:
     --------
-    X_train_discrete : np.ndarray
+    X_train_discrete : pd.DataFrame
         Discretized training data
-    X_test_discrete : np.ndarray
+    X_test_discrete : pd.DataFrame
         Discretized test data
     """
-    X_train = X[train_idx]
-    X_test = X[test_idx]
+    X_train = X.iloc[train_idx]
+    X_test = X.iloc[test_idx]
     
     X_train_discrete, X_test_discrete, _ = discretize_data(
         X_train, X_test, n_bins, strategy, columns_to_discretize
     )
     
     return X_train_discrete, X_test_discrete
-
-
-def identify_continuous_columns(
-    X: np.ndarray,
-    max_unique_values: int = 10,
-    binary_threshold: int = 2
-) -> Tuple[List[int], List[int]]:
-    """
-    Automatically identify continuous vs binary/categorical columns
-    
-    Parameters:
-    -----------
-    X : np.ndarray
-        Data to analyze
-    max_unique_values : int
-        Maximum number of unique values to consider a column as categorical
-    binary_threshold : int
-        If unique values <= this, consider as binary/categorical
-        
-    Returns:
-    --------
-    continuous_cols : list
-        Indices of columns identified as continuous
-    categorical_cols : list
-        Indices of columns identified as binary/categorical
-    """
-    n_features = X.shape[1]
-    continuous_cols = []
-    categorical_cols = []
-    
-    for i in range(n_features):
-        unique_values = np.unique(X[:, i])
-        n_unique = len(unique_values)
-        
-        # Check if binary (0/1 or similar)
-        if n_unique <= binary_threshold:
-            categorical_cols.append(i)
-        # Check if clearly categorical (few unique values)
-        elif n_unique <= max_unique_values:
-            categorical_cols.append(i)
-        # Otherwise, treat as continuous
-        else:
-            continuous_cols.append(i)
-    
-    return continuous_cols, categorical_cols
-
-
-def auto_discretize_data(
-    X_train: np.ndarray,
-    X_test: np.ndarray,
-    n_bins: int = 5,
-    strategy: str = 'quantile',
-    max_unique_values: int = 10
-) -> Tuple[np.ndarray, np.ndarray, Discretizer, List[int], List[int]]:
-    """
-    Automatically identify and discretize only continuous columns
-    
-    Parameters:
-    -----------
-    X_train : np.ndarray
-        Training data
-    X_test : np.ndarray
-        Test data
-    n_bins : int
-        Number of bins for discretization
-    strategy : str
-        Discretization strategy
-    max_unique_values : int
-        Maximum unique values to consider as categorical
-        
-    Returns:
-    --------
-    X_train_discrete : np.ndarray
-        Discretized training data
-    X_test_discrete : np.ndarray
-        Discretized test data
-    discretizer : Discretizer
-        Fitted discretizer
-    continuous_cols : list
-        Indices of continuous columns that were discretized
-    categorical_cols : list
-        Indices of categorical columns that were kept
-    """
-    # Identify column types
-    continuous_cols, categorical_cols = identify_continuous_columns(
-        X_train, max_unique_values=max_unique_values
-    )
-    
-    print(f"Identified {len(continuous_cols)} continuous columns: {continuous_cols}")
-    print(f"Identified {len(categorical_cols)} categorical/binary columns: {categorical_cols}")
-    
-    # Discretize only continuous columns
-    X_train_discrete, X_test_discrete, discretizer = discretize_data(
-        X_train, X_test, n_bins, strategy, 
-        columns_to_discretize=continuous_cols
-    )
-    
-    return X_train_discrete, X_test_discrete, discretizer, continuous_cols, categorical_cols

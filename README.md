@@ -16,5 +16,5 @@ Creación de entorno virtual **en la carpeta del proyecto**
 
 ```Bash
 # uv sync --group=<grupo-dependencias-modulo-específico>
-uv sync --group=rn
+uv sync --group=ri
 ```
