@@ -180,3 +180,5 @@ __marimo__/
 *.pkl
 *.gz
 *.zarr
+*.xlsx
+*.png
